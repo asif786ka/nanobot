@@ -11,8 +11,15 @@ import {
 import { useTranslation } from "react-i18next";
 
 import { FileReferenceChip } from "@/components/FileReferenceChip";
+import {
+  hasRenderableFileDiff,
+  parseRenderableFileDiff,
+  type RenderableFileDiff,
+  type RenderableFileDiffHunk,
+  type RenderableFileDiffLine,
+} from "@/lib/file-diff";
 import type { FileEditDisplayMode } from "@/lib/local-preferences";
-import type { UIFileDiff, UIFileDiffHunk, UIFileEdit, UIFileDiffLine } from "@/lib/types";
+import type { UIFileDiff, UIFileEdit } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 import { ActivityStep } from "./ActivityStep";
@@ -24,7 +31,7 @@ const AUTO_COLLAPSE_DIFF_LINES = INITIAL_VISIBLE_DIFF_LINES;
 type DiffFileEditDisplayMode = Exclude<FileEditDisplayMode, "summary">;
 
 interface VisibleDiffHunk {
-  hunk: UIFileDiffHunk;
+  hunk: RenderableFileDiffHunk;
   skippedBefore: number;
 }
 
@@ -96,7 +103,7 @@ function canRenderDiff(
     displayMode !== "summary"
     && edit.status !== "editing"
     && edit.status !== "error"
-    && !!edit.diff?.hunks?.length
+    && hasRenderableFileDiff(edit.diff)
   );
 }
 
@@ -258,7 +265,8 @@ function FileUnifiedDiff({
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
   const [open, setOpen] = useState(false);
   const [expandedLines, setExpandedLines] = useState(false);
-  const totalLineCount = useMemo(() => countDiffLines(diff), [diff]);
+  const renderableDiff = useMemo(() => parseRenderableFileDiff(diff), [diff]);
+  const totalLineCount = useMemo(() => countDiffLines(renderableDiff), [renderableDiff]);
   const shouldAutoCollapse = totalLineCount > AUTO_COLLAPSE_DIFF_LINES || !!diff.truncated;
   const startsCollapsed = collapsed || shouldAutoCollapse;
   const shouldRenderBody = !startsCollapsed || open;
@@ -267,8 +275,10 @@ function FileUnifiedDiff({
     ? totalLineCount
     : INITIAL_VISIBLE_DIFF_LINES;
   const visibleDiff = useMemo(
-    () => shouldRenderBody ? selectVisibleDiffLines(diff, lineLimit, totalLineCount) : EMPTY_VISIBLE_DIFF,
-    [diff, lineLimit, shouldRenderBody, totalLineCount],
+    () => shouldRenderBody
+      ? selectVisibleDiffLines(renderableDiff, lineLimit, totalLineCount)
+      : EMPTY_VISIBLE_DIFF,
+    [lineLimit, renderableDiff, shouldRenderBody, totalLineCount],
   );
   const lineCountLabel = t("message.fileEditDiffLineCount", {
     count: diff.truncated ? `${totalLineCount}+` : totalLineCount,
@@ -287,6 +297,8 @@ function FileUnifiedDiff({
     if (open) setExpandedLines(false);
     setOpen(!open);
   };
+
+  if (totalLineCount === 0) return null;
 
   const renderBody = () => (
     <div
@@ -401,12 +413,12 @@ function FileUnifiedDiff({
   );
 }
 
-function countDiffLines(diff: UIFileDiff): number {
+function countDiffLines(diff: RenderableFileDiff): number {
   return diff.hunks.reduce((total, hunk) => total + hunk.lines.length, 0);
 }
 
 function selectVisibleDiffLines(
-  diff: UIFileDiff,
+  diff: RenderableFileDiff,
   lineLimit: number,
   totalLineCount: number,
 ): VisibleDiff {
@@ -422,7 +434,7 @@ function selectVisibleDiffLines(
 
   let remaining = Math.max(0, lineLimit);
   const hunks: VisibleDiffHunk[] = [];
-  let previousHunk: UIFileDiffHunk | null = null;
+  let previousHunk: RenderableFileDiffHunk | null = null;
   for (const hunk of diff.hunks) {
     if (remaining <= 0) break;
     const skippedBefore = previousHunk ? countSkippedUnchangedLines(previousHunk, hunk) : 0;
@@ -442,7 +454,10 @@ function selectVisibleDiffLines(
   };
 }
 
-function countSkippedUnchangedLines(previous: UIFileDiffHunk, current: UIFileDiffHunk): number {
+function countSkippedUnchangedLines(
+  previous: RenderableFileDiffHunk,
+  current: RenderableFileDiffHunk,
+): number {
   const oldGap = current.old_start - (previous.old_start + previous.old_lines);
   const newGap = current.new_start - (previous.new_start + previous.new_lines);
   return Math.max(0, oldGap, newGap);
@@ -471,7 +486,7 @@ function DiffHunkGap({ lineCount }: { lineCount: number }) {
   );
 }
 
-function DiffLineRow({ line }: { line: UIFileDiffLine }) {
+function DiffLineRow({ line }: { line: RenderableFileDiffLine }) {
   const kind = line.kind === "add" || line.kind === "delete" ? line.kind : "context";
   const marker = kind === "add" ? "+" : kind === "delete" ? "-" : " ";
   return (
@@ -500,7 +515,6 @@ function DiffLineRow({ line }: { line: UIFileDiffLine }) {
       </td>
       <td className="min-w-[16rem] px-1.5 text-foreground/86">
         <span className="whitespace-pre">{line.content || " "}</span>
-        {line.truncated ? <span className="text-muted-foreground/60">...</span> : null}
       </td>
     </tr>
   );

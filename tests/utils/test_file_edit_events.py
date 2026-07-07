@@ -63,10 +63,14 @@ def test_write_file_start_predicts_and_end_calibrates_exact_diff(tmp_path: Path)
     assert end["approximate"] is False
     assert (end["added"], end["deleted"]) == (2, 1)
     assert end["diff"]["format"] == "unified"
-    lines = end["diff"]["hunks"][0]["lines"]
-    assert {"kind": "delete", "old_lineno": 1, "new_lineno": None, "content": "old"} in lines
-    assert {"kind": "add", "old_lineno": None, "new_lineno": 1, "content": "new"} in lines
-    assert {"kind": "add", "old_lineno": None, "new_lineno": 3, "content": "extra"} in lines
+    assert "hunks" not in end["diff"]
+    diff_text = end["diff"]["text"]
+    assert "--- notes.txt" in diff_text
+    assert "+++ notes.txt" in diff_text
+    assert "@@ " in diff_text
+    assert "-old" in diff_text
+    assert "+new" in diff_text
+    assert "+extra" in diff_text
 
 
 def test_unified_diff_payload_truncates_large_diffs() -> None:
@@ -77,7 +81,12 @@ def test_unified_diff_payload_truncates_large_diffs() -> None:
 
     assert diff is not None
     assert diff["truncated"] is True
-    assert sum(len(hunk["lines"]) for hunk in diff["hunks"]) == 5
+    assert "hunks" not in diff
+    body_lines = [
+        line for line in diff["text"].splitlines()
+        if line.startswith((" ", "+", "-")) and not line.startswith(("+++", "---"))
+    ]
+    assert len(body_lines) == 5
 
 
 def test_binary_file_is_reported_but_not_counted(tmp_path: Path) -> None:

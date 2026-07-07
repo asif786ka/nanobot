@@ -230,7 +230,9 @@ export interface UIFileDiff {
   format: "unified" | string;
   context?: number;
   truncated?: boolean;
-  hunks: UIFileDiffHunk[];
+  text?: string;
+  /** Legacy pre-text payloads persisted in local transcripts before the unified diff wire format. */
+  hunks?: UIFileDiffHunk[];
 }
 
 export interface UIFileEdit {

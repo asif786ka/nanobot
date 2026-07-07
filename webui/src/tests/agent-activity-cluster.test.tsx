@@ -41,6 +41,15 @@ const BROWSERBASE_MCP: McpPresetInfo = {
   connection_summary: "https://mcp.browserbase.com/mcp",
 };
 
+function unifiedFileDiff(lines: string[], truncated = false) {
+  return {
+    format: "unified" as const,
+    context: 3,
+    truncated,
+    text: lines.join("\n"),
+  };
+}
+
 function activityMessages(extraReasoning = "", extraTool?: UIMessage): UIMessage[] {
   const rows: UIMessage[] = [
     {
@@ -471,22 +480,14 @@ describe("AgentActivityCluster", () => {
               deleted: 1,
               approximate: false,
               status: "done",
-              diff: {
-                format: "unified",
-                context: 3,
-                truncated: false,
-                hunks: [{
-                  old_start: 10,
-                  old_lines: 3,
-                  new_start: 10,
-                  new_lines: 3,
-                  lines: [
-                    { kind: "context", old_lineno: 10, new_lineno: 10, content: "function App() {" },
-                    { kind: "delete", old_lineno: 11, new_lineno: null, content: "  return <Old />;" },
-                    { kind: "add", old_lineno: null, new_lineno: 11, content: "  return <New />;" },
-                  ],
-                }],
-              },
+              diff: unifiedFileDiff([
+                "--- src/app.tsx",
+                "+++ src/app.tsx",
+                "@@ -10,2 +10,2 @@",
+                " function App() {",
+                "-  return <Old />;",
+                "+  return <New />;",
+              ]),
             }],
             createdAt: 3,
           }]}
@@ -496,7 +497,7 @@ describe("AgentActivityCluster", () => {
       );
 
       expect(screen.getByTestId("file-edit-diff")).toBeInTheDocument();
-      expect(screen.queryByText("@@ -10,3 +10,3 @@")).not.toBeInTheDocument();
+      expect(screen.queryByText("@@ -10,2 +10,2 @@")).not.toBeInTheDocument();
       expect(screen.getByText("return <Old />;")).toBeInTheDocument();
       expect(screen.getByText("return <New />;")).toBeInTheDocument();
       expect(screen.getAllByText("11").length).toBeGreaterThanOrEqual(2);
@@ -532,35 +533,20 @@ describe("AgentActivityCluster", () => {
               deleted: 2,
               approximate: false,
               status: "done",
-              diff: {
-                format: "unified",
-                context: 3,
-                truncated: false,
-                hunks: [
-                  {
-                    old_start: 1,
-                    old_lines: 3,
-                    new_start: 1,
-                    new_lines: 3,
-                    lines: [
-                      { kind: "context", old_lineno: 1, new_lineno: 1, content: "function first() {" },
-                      { kind: "delete", old_lineno: 2, new_lineno: null, content: "  return oldFirst;" },
-                      { kind: "add", old_lineno: null, new_lineno: 2, content: "  return newFirst;" },
-                    ],
-                  },
-                  {
-                    old_start: 25,
-                    old_lines: 3,
-                    new_start: 25,
-                    new_lines: 3,
-                    lines: [
-                      { kind: "context", old_lineno: 25, new_lineno: 25, content: "function second() {" },
-                      { kind: "delete", old_lineno: 26, new_lineno: null, content: "  return oldSecond;" },
-                      { kind: "add", old_lineno: null, new_lineno: 26, content: "  return newSecond;" },
-                    ],
-                  },
-                ],
-              },
+              diff: unifiedFileDiff([
+                "--- src/app.tsx",
+                "+++ src/app.tsx",
+                "@@ -1,3 +1,3 @@",
+                " function first() {",
+                "-  return oldFirst;",
+                "+  return newFirst;",
+                " }",
+                "@@ -25,3 +25,3 @@",
+                " function second() {",
+                "-  return oldSecond;",
+                "+  return newSecond;",
+                " }",
+              ]),
             }],
             createdAt: 3,
           }]}
@@ -584,12 +570,7 @@ describe("AgentActivityCluster", () => {
       "nanobot-webui.settings-preferences",
       JSON.stringify({ fileEditDisplayMode: "diff" }),
     );
-    const lines = Array.from({ length: 165 }, (_, index) => ({
-      kind: "add" as const,
-      old_lineno: null,
-      new_lineno: index + 1,
-      content: `line-${index + 1}`,
-    }));
+    const lines = Array.from({ length: 165 }, (_, index) => `line-${index + 1}`);
 
     try {
       render(
@@ -609,18 +590,12 @@ describe("AgentActivityCluster", () => {
               deleted: 0,
               approximate: false,
               status: "done",
-              diff: {
-                format: "unified",
-                context: 3,
-                truncated: false,
-                hunks: [{
-                  old_start: 1,
-                  old_lines: 0,
-                  new_start: 1,
-                  new_lines: lines.length,
-                  lines,
-                }],
-              },
+              diff: unifiedFileDiff([
+                "--- src/long.ts",
+                "+++ src/long.ts",
+                `@@ -0,0 +1,${lines.length} @@`,
+                ...lines.map((line) => `+${line}`),
+              ]),
             }],
             createdAt: 3,
           }]}
@@ -686,22 +661,14 @@ describe("AgentActivityCluster", () => {
               deleted: 1,
               approximate: false,
               status: "done",
-              diff: {
-                format: "unified",
-                context: 3,
-                truncated: false,
-                hunks: [{
-                  old_start: 10,
-                  old_lines: 3,
-                  new_start: 10,
-                  new_lines: 3,
-                  lines: [
-                    { kind: "context", old_lineno: 10, new_lineno: 10, content: "function App() {" },
-                    { kind: "delete", old_lineno: 11, new_lineno: null, content: "  return <Old />;" },
-                    { kind: "add", old_lineno: null, new_lineno: 11, content: "  return <New />;" },
-                  ],
-                }],
-              },
+              diff: unifiedFileDiff([
+                "--- src/app.tsx",
+                "+++ src/app.tsx",
+                "@@ -10,2 +10,2 @@",
+                " function App() {",
+                "-  return <Old />;",
+                "+  return <New />;",
+              ]),
             }],
             createdAt: 3,
           }]}
@@ -753,20 +720,12 @@ describe("AgentActivityCluster", () => {
               deleted: 0,
               approximate: false,
               status: "done",
-              diff: {
-                format: "unified",
-                context: 3,
-                truncated: true,
-                hunks: [{
-                  old_start: 10,
-                  old_lines: 0,
-                  new_start: 10,
-                  new_lines: 1,
-                  lines: [
-                    { kind: "add", old_lineno: null, new_lineno: 10, content: "export const value = 1;" },
-                  ],
-                }],
-              },
+              diff: unifiedFileDiff([
+                "--- src/app.tsx",
+                "+++ src/app.tsx",
+                "@@ -9,0 +10,1 @@",
+                "+export const value = 1;",
+              ], true),
             }],
             createdAt: 3,
           }]}

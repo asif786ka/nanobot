@@ -30,6 +30,7 @@ import {
   type ActivityEvidence,
 } from "@/lib/activity-timeline";
 import { useFileEditDisplayMode } from "@/hooks/useFileEditDisplayMode";
+import { hasRenderableFileDiff } from "@/lib/file-diff";
 import type { FileEditDisplayMode } from "@/lib/local-preferences";
 import { faviconUrls, logoFallbackUrls } from "@/lib/provider-brand";
 import { formatToolCallTrace } from "@/lib/tool-traces";
@@ -587,16 +588,16 @@ function FileEditFlatActivity({
   const diffOnlyRows = edits.length === 1
     && !!singleFilePath
     && fileEditDisplayMode !== "summary"
-    && edits.some((edit) =>
+    && edits.some((edit) => (
       edit.status !== "editing"
       && edit.status !== "error"
-      && !!edit.diff?.hunks?.length
-    );
+      && hasRenderableFileDiff(edit.diff)
+    ));
   const showRows = edits.length > 1
     || edits.some((edit) => edit.status === "error" || edit.pending)
     || (
       fileEditDisplayMode !== "summary"
-      && edits.some((edit) => edit.diff?.hunks?.length)
+      && edits.some((edit) => hasRenderableFileDiff(edit.diff))
     );
   return (
     <div className={cn("w-full", hasBodyBelow && "mb-2")} aria-label={summary}>
@@ -1625,7 +1626,7 @@ function summarizeFileEdits(edits: UIFileEdit[], active: boolean): FileEditSumma
     if (edit.operation === "delete") {
       summary.operation = "delete";
     }
-    if (edit.diff?.hunks?.length) {
+    if (hasRenderableFileDiff(edit.diff)) {
       summary.diff = edit.diff;
     }
     summary.pending = summary.pending || !!edit.pending || !edit.path;
