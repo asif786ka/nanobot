@@ -30,6 +30,7 @@ import {
   type ActivityEvidence,
 } from "@/lib/activity-timeline";
 import { useFileEditDisplayMode } from "@/hooks/useFileEditDisplayMode";
+import type { FileEditDisplayMode } from "@/lib/local-preferences";
 import { faviconUrls, logoFallbackUrls } from "@/lib/provider-brand";
 import { formatToolCallTrace } from "@/lib/tool-traces";
 import { cn } from "@/lib/utils";
@@ -535,6 +536,7 @@ export function AgentActivityCluster({
               {fileEdits.length ? (
                 <FileEditGroup
                   edits={fileEdits}
+                  displayMode={fileEditDisplayMode}
                   onOpenFilePreview={onOpenFilePreview}
                 />
               ) : null}
@@ -579,7 +581,7 @@ function FileEditFlatActivity({
   added: number;
   deleted: number;
   hasDiffStats: boolean;
-  fileEditDisplayMode: "summary" | "diff" | "collapsed_diff";
+  fileEditDisplayMode: FileEditDisplayMode;
   onOpenFilePreview?: (path: string) => void;
 }) {
   const diffOnlyRows = edits.length === 1
@@ -631,6 +633,7 @@ function FileEditFlatActivity({
         <div className="mt-0.5 pl-4">
           <FileEditGroup
             edits={edits}
+            displayMode={fileEditDisplayMode}
             density={diffOnlyRows ? "diff-only" : "default"}
             onOpenFilePreview={onOpenFilePreview}
           />

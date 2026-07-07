@@ -11,7 +11,7 @@ import {
 import { useTranslation } from "react-i18next";
 
 import { FileReferenceChip } from "@/components/FileReferenceChip";
-import { useFileEditDisplayMode } from "@/hooks/useFileEditDisplayMode";
+import type { FileEditDisplayMode } from "@/lib/local-preferences";
 import type { UIFileDiff, UIFileDiffHunk, UIFileEdit, UIFileDiffLine } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -20,6 +20,8 @@ import { DiffPair } from "./DiffPair";
 
 const INITIAL_VISIBLE_DIFF_LINES = 160;
 const AUTO_COLLAPSE_DIFF_LINES = INITIAL_VISIBLE_DIFF_LINES;
+
+type DiffFileEditDisplayMode = Exclude<FileEditDisplayMode, "summary">;
 
 interface VisibleDiffHunk {
   hunk: UIFileDiffHunk;
@@ -50,19 +52,20 @@ export interface FileEditSummary {
 
 export function FileEditGroup({
   edits,
+  displayMode,
   onOpenFilePreview,
   density = "default",
 }: {
   edits: FileEditSummary[];
+  displayMode: FileEditDisplayMode;
   onOpenFilePreview?: (path: string) => void;
   density?: "default" | "diff-only";
 }) {
-  const displayMode = useFileEditDisplayMode();
   if (edits.length === 0) return null;
   return (
     <ul className="space-y-1">
       {edits.map((edit) => {
-        if (density === "diff-only" && canRenderDiffOnly(edit, displayMode)) {
+        if (density === "diff-only" && canRenderDiff(edit, displayMode)) {
           return (
             <FileEditDiffOnly
               key={edit.key}
@@ -76,6 +79,7 @@ export function FileEditGroup({
           <FileEditRow
             key={edit.key}
             edit={edit}
+            displayMode={displayMode}
             onOpenFilePreview={onOpenFilePreview}
           />
         );
@@ -84,10 +88,10 @@ export function FileEditGroup({
   );
 }
 
-function canRenderDiffOnly(
+function canRenderDiff(
   edit: FileEditSummary,
-  displayMode: "summary" | "diff" | "collapsed_diff",
-): displayMode is "diff" | "collapsed_diff" {
+  displayMode: FileEditDisplayMode,
+): displayMode is DiffFileEditDisplayMode {
   return (
     displayMode !== "summary"
     && edit.status !== "editing"
@@ -102,7 +106,7 @@ function FileEditDiffOnly({
   onOpenFilePreview,
 }: {
   edit: FileEditSummary;
-  displayMode: "diff" | "collapsed_diff";
+  displayMode: DiffFileEditDisplayMode;
   onOpenFilePreview?: (path: string) => void;
 }) {
   return (
@@ -122,17 +126,18 @@ function FileEditDiffOnly({
 
 function FileEditRow({
   edit,
+  displayMode,
   onOpenFilePreview,
 }: {
   edit: FileEditSummary;
+  displayMode: FileEditDisplayMode;
   onOpenFilePreview?: (path: string) => void;
 }) {
   const { t } = useTranslation();
-  const displayMode = useFileEditDisplayMode();
   const editing = edit.status === "editing";
   const failed = edit.status === "error";
   const hasCountedDiff = !failed && !edit.binary && hasVisibleDiffStats(edit);
-  const showDiff = displayMode !== "summary" && !editing && !failed && !!edit.diff?.hunks?.length;
+  const showDiff = canRenderDiff(edit, displayMode);
   const rawFailureDetail = failed ? cleanFileEditError(edit.error) : "";
   const failureDetail = failed
     ? formatFileEditError(edit.error)
