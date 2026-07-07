@@ -508,7 +508,78 @@ describe("AgentActivityCluster", () => {
     }
   });
 
-  it("renders long file edit diffs incrementally", () => {
+  it("renders folded separators between separated file edit hunks", () => {
+    localStorage.setItem(
+      "nanobot-webui.settings-preferences",
+      JSON.stringify({ fileEditDisplayMode: "diff" }),
+    );
+
+    try {
+      render(
+        <AgentActivityCluster
+          messages={[{
+            id: "t-multi-hunk-diff",
+            role: "tool",
+            kind: "trace",
+            content: "edit_file()",
+            traces: ["edit_file()"],
+            fileEdits: [{
+              call_id: "call-multi-hunk-edit",
+              tool: "edit_file",
+              path: "src/app.tsx",
+              phase: "end",
+              added: 2,
+              deleted: 2,
+              approximate: false,
+              status: "done",
+              diff: {
+                format: "unified",
+                context: 3,
+                truncated: false,
+                hunks: [
+                  {
+                    old_start: 1,
+                    old_lines: 3,
+                    new_start: 1,
+                    new_lines: 3,
+                    lines: [
+                      { kind: "context", old_lineno: 1, new_lineno: 1, content: "function first() {" },
+                      { kind: "delete", old_lineno: 2, new_lineno: null, content: "  return oldFirst;" },
+                      { kind: "add", old_lineno: null, new_lineno: 2, content: "  return newFirst;" },
+                    ],
+                  },
+                  {
+                    old_start: 25,
+                    old_lines: 3,
+                    new_start: 25,
+                    new_lines: 3,
+                    lines: [
+                      { kind: "context", old_lineno: 25, new_lineno: 25, content: "function second() {" },
+                      { kind: "delete", old_lineno: 26, new_lineno: null, content: "  return oldSecond;" },
+                      { kind: "add", old_lineno: null, new_lineno: 26, content: "  return newSecond;" },
+                    ],
+                  },
+                ],
+              },
+            }],
+            createdAt: 3,
+          }]}
+          isTurnStreaming={false}
+          hasBodyBelow={false}
+        />,
+      );
+
+      expect(screen.getByTestId("file-edit-diff-hunk-gap")).toHaveTextContent(
+        "21 unchanged lines hidden",
+      );
+      expect(screen.queryByText("@@ -25,3 +25,3 @@")).not.toBeInTheDocument();
+      expect(screen.getByText("return newSecond;")).toBeInTheDocument();
+    } finally {
+      localStorage.removeItem("nanobot-webui.settings-preferences");
+    }
+  });
+
+  it("keeps long file edit diffs collapsed until opened", () => {
     localStorage.setItem(
       "nanobot-webui.settings-preferences",
       JSON.stringify({ fileEditDisplayMode: "diff" }),
@@ -558,6 +629,16 @@ describe("AgentActivityCluster", () => {
         />,
       );
 
+      const toggle = screen.getByTestId("file-edit-diff-toggle");
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      expect(toggle).toHaveTextContent("View large diff");
+      expect(toggle).toHaveTextContent("165 lines");
+      expect(screen.queryByTestId("file-edit-diff")).not.toBeInTheDocument();
+      expect(screen.queryByText("line-1")).not.toBeInTheDocument();
+
+      fireEvent.click(toggle);
+
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
       expect(screen.getByText("line-160")).toBeInTheDocument();
       expect(screen.queryByText("line-161")).not.toBeInTheDocument();
       expect(screen.getByTestId("file-edit-diff-expand-lines")).toHaveTextContent("Show 5 more lines");
@@ -571,6 +652,11 @@ describe("AgentActivityCluster", () => {
 
       expect(screen.queryByText("line-165")).not.toBeInTheDocument();
       expect(screen.getByTestId("file-edit-diff-expand-lines")).toHaveTextContent("Show 5 more lines");
+
+      fireEvent.click(toggle);
+
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      expect(screen.queryByTestId("file-edit-diff")).not.toBeInTheDocument();
     } finally {
       localStorage.removeItem("nanobot-webui.settings-preferences");
     }
@@ -689,6 +775,13 @@ describe("AgentActivityCluster", () => {
           onOpenFilePreview={onOpenFilePreview}
         />,
       );
+
+      const toggle = screen.getByTestId("file-edit-diff-toggle");
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      expect(toggle).toHaveTextContent("View large diff");
+      expect(screen.queryByTestId("file-edit-diff-truncated")).not.toBeInTheDocument();
+
+      fireEvent.click(toggle);
 
       expect(screen.getByTestId("file-edit-diff-truncated")).toHaveTextContent("Diff truncated");
       fireEvent.click(screen.getByTestId("file-edit-diff-open-file"));
