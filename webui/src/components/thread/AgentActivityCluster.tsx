@@ -29,10 +29,11 @@ import {
   isReasoningOnlyAssistant,
   type ActivityEvidence,
 } from "@/lib/activity-timeline";
+import { useFileEditDisplayMode } from "@/hooks/useFileEditDisplayMode";
 import { faviconUrls, logoFallbackUrls } from "@/lib/provider-brand";
 import { formatToolCallTrace } from "@/lib/tool-traces";
 import { cn } from "@/lib/utils";
-import type { CliAppInfo, McpPresetInfo, ToolProgressEvent, UIFileEdit, UIMessage } from "@/lib/types";
+import type { CliAppInfo, McpPresetInfo, ToolProgressEvent, UIFileDiff, UIFileEdit, UIMessage } from "@/lib/types";
 
 /** Scrollport height for the Cursor-style “live trace” strip (tailwind spacing). */
 const CLUSTER_SCROLL_MAX_CLASS = "max-h-52";
@@ -190,6 +191,7 @@ export function AgentActivityCluster({
   onOpenFilePreview,
 }: AgentActivityClusterProps) {
   const { t } = useTranslation();
+  const fileEditDisplayMode = useFileEditDisplayMode();
   const fileEdits = useMemo(
     () => summarizeFileEdits(collectFileEdits(messages), isTurnStreaming),
     [messages, isTurnStreaming],
@@ -438,6 +440,7 @@ export function AgentActivityCluster({
         added={added}
         deleted={deleted}
         hasDiffStats={hasDiffStats}
+        fileEditDisplayMode={fileEditDisplayMode}
         onOpenFilePreview={onOpenFilePreview}
       />
     );
@@ -561,6 +564,7 @@ function FileEditFlatActivity({
   added,
   deleted,
   hasDiffStats,
+  fileEditDisplayMode,
   onOpenFilePreview,
 }: {
   edits: FileEditSummary[];
@@ -575,9 +579,23 @@ function FileEditFlatActivity({
   added: number;
   deleted: number;
   hasDiffStats: boolean;
+  fileEditDisplayMode: "summary" | "diff" | "collapsed_diff";
   onOpenFilePreview?: (path: string) => void;
 }) {
-  const showRows = edits.length > 1 || edits.some((edit) => edit.status === "error" || edit.pending);
+  const diffOnlyRows = edits.length === 1
+    && !!singleFilePath
+    && fileEditDisplayMode !== "summary"
+    && edits.some((edit) =>
+      edit.status !== "editing"
+      && edit.status !== "error"
+      && !!edit.diff?.hunks?.length
+    );
+  const showRows = edits.length > 1
+    || edits.some((edit) => edit.status === "error" || edit.pending)
+    || (
+      fileEditDisplayMode !== "summary"
+      && edits.some((edit) => edit.diff?.hunks?.length)
+    );
   return (
     <div className={cn("w-full", hasBodyBelow && "mb-2")} aria-label={summary}>
       <div
@@ -611,7 +629,11 @@ function FileEditFlatActivity({
       </div>
       {showRows ? (
         <div className="mt-0.5 pl-4">
-          <FileEditGroup edits={edits} onOpenFilePreview={onOpenFilePreview} />
+          <FileEditGroup
+            edits={edits}
+            density={diffOnlyRows ? "diff-only" : "default"}
+            onOpenFilePreview={onOpenFilePreview}
+          />
         </div>
       ) : null}
     </div>
@@ -1564,6 +1586,7 @@ function summarizeFileEdits(edits: UIFileEdit[], active: boolean): FileEditSumma
     hasFailed: boolean;
     operation?: UIFileEdit["operation"];
     error?: string;
+    diff?: UIFileDiff;
   }
 
   const order: string[] = [];
@@ -1598,6 +1621,9 @@ function summarizeFileEdits(edits: UIFileEdit[], active: boolean): FileEditSumma
     }
     if (edit.operation === "delete") {
       summary.operation = "delete";
+    }
+    if (edit.diff?.hunks?.length) {
+      summary.diff = edit.diff;
     }
     summary.pending = summary.pending || !!edit.pending || !edit.path;
     if (!edit.path && edit.pending) {
@@ -1666,6 +1692,7 @@ function summarizeFileEdits(edits: UIFileEdit[], active: boolean): FileEditSumma
       operation: summary.operation,
       pending: summary.pending && !summary.path,
       error: summary.error,
+      diff: summary.diff,
     }];
   });
 }

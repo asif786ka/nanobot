@@ -11,6 +11,9 @@ from typing import Any, Awaitable, Callable
 
 TRACKED_FILE_EDIT_TOOLS = frozenset({"write_file", "edit_file", "apply_patch"})
 _MAX_SNAPSHOT_BYTES = 2 * 1024 * 1024
+_MAX_DIFF_LINES = 500
+_MAX_DIFF_LINE_CHARS = 1200
+_DIFF_CONTEXT_LINES = 3
 _LIVE_EMIT_INTERVAL_S = 0.18
 _LIVE_EMIT_LINE_STEP = 24
 
@@ -120,6 +123,145 @@ def line_diff_stats(before: str | None, after: str | None) -> tuple[int, int]:
         if tag in ("replace", "insert"):
             added += j2 - j1
     return added, deleted
+
+
+def build_unified_diff_payload(
+    before: str | None,
+    after: str | None,
+    *,
+    context_lines: int = _DIFF_CONTEXT_LINES,
+    max_lines: int = _MAX_DIFF_LINES,
+    max_line_chars: int = _MAX_DIFF_LINE_CHARS,
+) -> dict[str, Any] | None:
+    """Return a compact structured unified diff for WebUI rendering."""
+    if before is None or after is None:
+        return None
+    before_lines = before.replace("\r\n", "\n").splitlines()
+    after_lines = after.replace("\r\n", "\n").splitlines()
+    matcher = difflib.SequenceMatcher(a=before_lines, b=after_lines, autojunk=False)
+    groups = list(matcher.get_grouped_opcodes(max(0, int(context_lines))))
+    if not groups:
+        return None
+
+    hunks: list[dict[str, Any]] = []
+    emitted_lines = 0
+    truncated = False
+
+    def append_line(
+        lines: list[dict[str, Any]],
+        *,
+        kind: str,
+        old_lineno: int | None,
+        new_lineno: int | None,
+        content: str,
+    ) -> bool:
+        nonlocal emitted_lines, truncated
+        if emitted_lines >= max_lines:
+            truncated = True
+            return False
+        line: dict[str, Any] = {
+            "kind": kind,
+            "old_lineno": old_lineno,
+            "new_lineno": new_lineno,
+            "content": content,
+        }
+        if len(content) > max_line_chars:
+            line["content"] = content[:max_line_chars]
+            line["truncated"] = True
+            truncated = True
+        lines.append(line)
+        emitted_lines += 1
+        return True
+
+    for group in groups:
+        first = group[0]
+        last = group[-1]
+        old_start = first[1] + 1
+        new_start = first[3] + 1
+        old_span = last[2] - first[1]
+        new_span = last[4] - first[3]
+        hunk_lines: list[dict[str, Any]] = []
+        old_lineno = old_start
+        new_lineno = new_start
+
+        for tag, i1, i2, j1, j2 in group:
+            if tag == "equal":
+                for offset in range(i2 - i1):
+                    if not append_line(
+                        hunk_lines,
+                        kind="context",
+                        old_lineno=old_lineno,
+                        new_lineno=new_lineno,
+                        content=before_lines[i1 + offset],
+                    ):
+                        break
+                    old_lineno += 1
+                    new_lineno += 1
+            elif tag == "delete":
+                for offset in range(i2 - i1):
+                    if not append_line(
+                        hunk_lines,
+                        kind="delete",
+                        old_lineno=old_lineno,
+                        new_lineno=None,
+                        content=before_lines[i1 + offset],
+                    ):
+                        break
+                    old_lineno += 1
+            elif tag == "insert":
+                for offset in range(j2 - j1):
+                    if not append_line(
+                        hunk_lines,
+                        kind="add",
+                        old_lineno=None,
+                        new_lineno=new_lineno,
+                        content=after_lines[j1 + offset],
+                    ):
+                        break
+                    new_lineno += 1
+            elif tag == "replace":
+                for offset in range(i2 - i1):
+                    if not append_line(
+                        hunk_lines,
+                        kind="delete",
+                        old_lineno=old_lineno,
+                        new_lineno=None,
+                        content=before_lines[i1 + offset],
+                    ):
+                        break
+                    old_lineno += 1
+                for offset in range(j2 - j1):
+                    if not append_line(
+                        hunk_lines,
+                        kind="add",
+                        old_lineno=None,
+                        new_lineno=new_lineno,
+                        content=after_lines[j1 + offset],
+                    ):
+                        break
+                    new_lineno += 1
+            if truncated and emitted_lines >= max_lines:
+                break
+
+        if hunk_lines:
+            hunks.append({
+                "old_start": old_start,
+                "old_lines": old_span,
+                "new_start": new_start,
+                "new_lines": new_span,
+                "lines": hunk_lines,
+            })
+        if truncated and emitted_lines >= max_lines:
+            break
+
+    if not hunks:
+        return None
+    return {
+        "format": "unified",
+        "context": context_lines,
+        "truncated": truncated,
+        "hunks": hunks,
+    }
 
 
 def _text_line_count(text: str) -> int:
@@ -281,8 +423,10 @@ def build_file_edit_end_event(
 ) -> dict[str, Any]:
     after = read_file_snapshot(tracker.path)
     counted = False
+    diff_payload: dict[str, Any] | None = None
     if tracker.before.countable and after.countable:
         added, deleted = line_diff_stats(tracker.before.text, after.text)
+        diff_payload = build_unified_diff_payload(tracker.before.text, after.text)
         counted = True
     else:
         predicted_after = _predict_after_text(tracker.tool, params or {}, tracker.before)
@@ -291,7 +435,7 @@ def build_file_edit_end_event(
             counted = True
         else:
             added, deleted = 0, 0
-    return _event_payload(
+    payload = _event_payload(
         tracker,
         phase="end",
         status="done",
@@ -301,6 +445,9 @@ def build_file_edit_end_event(
         binary=(after.binary or after.oversized or after.unreadable) and not counted,
         operation="delete" if tracker.before.exists and not after.exists else None,
     )
+    if diff_payload is not None:
+        payload["diff"] = diff_payload
+    return payload
 
 
 def build_file_edit_error_event(

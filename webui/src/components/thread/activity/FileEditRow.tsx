@@ -2,7 +2,8 @@ import { AlertCircle, CheckCircle2, CircleDashed } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { FileReferenceChip } from "@/components/FileReferenceChip";
-import type { UIFileEdit } from "@/lib/types";
+import { useFileEditDisplayMode } from "@/hooks/useFileEditDisplayMode";
+import type { UIFileDiff, UIFileEdit, UIFileDiffLine } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 import { ActivityStep } from "./ActivityStep";
@@ -20,26 +21,73 @@ export interface FileEditSummary {
   operation?: UIFileEdit["operation"];
   pending: boolean;
   error?: string;
+  diff?: UIFileDiff;
 }
 
 export function FileEditGroup({
   edits,
   onOpenFilePreview,
+  density = "default",
 }: {
   edits: FileEditSummary[];
   onOpenFilePreview?: (path: string) => void;
+  density?: "default" | "diff-only";
 }) {
+  const displayMode = useFileEditDisplayMode();
   if (edits.length === 0) return null;
   return (
     <ul className="space-y-1">
-      {edits.map((edit) => (
-        <FileEditRow
-          key={edit.key}
-          edit={edit}
-          onOpenFilePreview={onOpenFilePreview}
-        />
-      ))}
+      {edits.map((edit) => {
+        if (density === "diff-only" && canRenderDiffOnly(edit, displayMode)) {
+          return (
+            <FileEditDiffOnly
+              key={edit.key}
+              edit={edit}
+              displayMode={displayMode}
+            />
+          );
+        }
+        return (
+          <FileEditRow
+            key={edit.key}
+            edit={edit}
+            onOpenFilePreview={onOpenFilePreview}
+          />
+        );
+      })}
     </ul>
+  );
+}
+
+function canRenderDiffOnly(
+  edit: FileEditSummary,
+  displayMode: "summary" | "diff" | "collapsed_diff",
+): displayMode is "diff" | "collapsed_diff" {
+  return (
+    displayMode !== "summary"
+    && edit.status !== "editing"
+    && edit.status !== "error"
+    && !!edit.diff?.hunks?.length
+  );
+}
+
+function FileEditDiffOnly({
+  edit,
+  displayMode,
+}: {
+  edit: FileEditSummary;
+  displayMode: "diff" | "collapsed_diff";
+}) {
+  return (
+    <li className="min-w-0 py-0.5">
+      <FileUnifiedDiff
+        diff={edit.diff!}
+        collapsed={displayMode === "collapsed_diff"}
+        added={edit.added}
+        deleted={edit.deleted}
+        showCollapsedStats={false}
+      />
+    </li>
   );
 }
 
@@ -51,9 +99,11 @@ function FileEditRow({
   onOpenFilePreview?: (path: string) => void;
 }) {
   const { t } = useTranslation();
+  const displayMode = useFileEditDisplayMode();
   const editing = edit.status === "editing";
   const failed = edit.status === "error";
   const hasCountedDiff = !failed && !edit.binary && hasVisibleDiffStats(edit);
+  const showDiff = displayMode !== "summary" && !editing && !failed && !!edit.diff?.hunks?.length;
   const rawFailureDetail = failed ? cleanFileEditError(edit.error) : "";
   const failureDetail = failed
     ? formatFileEditError(edit.error)
@@ -84,7 +134,7 @@ function FileEditRow({
       active={editing}
       tone={failed ? "error" : editing ? "active" : "success"}
       className="text-xs"
-      contentClassName={failed ? "min-w-0" : "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3"}
+      contentClassName={failed || showDiff ? "min-w-0" : "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3"}
       title={rawFailureDetail || edit.absolute_path || edit.path}
       label={edit.pending && !edit.path
         ? t("message.fileEditPreparing", { defaultValue: "Preparing file edit…" })
@@ -108,6 +158,14 @@ function FileEditRow({
         <span className="block max-w-[42rem] truncate text-[11px] leading-4 text-destructive/75">
           {failureDetail}
         </span>
+      ) : null}
+      {showDiff ? (
+        <FileUnifiedDiff
+          diff={edit.diff!}
+          collapsed={displayMode === "collapsed_diff"}
+          added={edit.added}
+          deleted={edit.deleted}
+        />
       ) : null}
     </ActivityStep>
   );
@@ -141,4 +199,104 @@ function formatFileEditError(error?: string): string {
     .replace(/^file to (?:update|delete) does not exist: (.+)$/i, "File does not exist: $1.")
     .replace(/^path to (?:update|delete) is not a file: (.+)$/i, "Path is not a file: $1.")
     .slice(0, 180);
+}
+
+function FileUnifiedDiff({
+  diff,
+  collapsed,
+  added,
+  deleted,
+  showCollapsedStats = true,
+}: {
+  diff: UIFileDiff;
+  collapsed: boolean;
+  added: number;
+  deleted: number;
+  showCollapsedStats?: boolean;
+}) {
+  const { t } = useTranslation();
+  const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
+  const body = (
+    <div
+      className="mt-1 overflow-hidden rounded-md border border-border/55 bg-background/80 shadow-[0_1px_0_rgba(15,23,42,0.03)]"
+      data-testid="file-edit-diff"
+    >
+      {diff.hunks.map((hunk, index) => (
+        <div
+          key={`${hunk.old_start}-${hunk.new_start}-${index}`}
+          className={cn("min-w-0", index > 0 && "border-t border-border/45")}
+        >
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse font-mono text-[11px] leading-5">
+              <tbody>
+                {hunk.lines.map((line, lineIndex) => (
+                  <DiffLineRow
+                    key={`${line.old_lineno ?? ""}:${line.new_lineno ?? ""}:${lineIndex}`}
+                    line={line}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
+      {diff.truncated ? (
+        <div className="border-t border-border/45 bg-muted/35 px-2 py-1 text-[11px] text-muted-foreground">
+          {tx("message.fileEditDiffTruncated", "Diff truncated. Open the file for the full change.")}
+        </div>
+      ) : null}
+    </div>
+  );
+
+  if (!collapsed) return body;
+
+  return (
+    <details className="group/file-diff mt-1">
+      <summary
+        className={cn(
+          "flex cursor-pointer list-none items-center gap-2 rounded-md border border-border/45 bg-muted/35 px-2 py-1",
+          "text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/50",
+        )}
+      >
+        <span className="min-w-0 flex-1">{tx("message.fileEditViewDiff", "View diff")}</span>
+        {showCollapsedStats ? <DiffPair added={added} deleted={deleted} /> : null}
+      </summary>
+      {body}
+    </details>
+  );
+}
+
+function DiffLineRow({ line }: { line: UIFileDiffLine }) {
+  const kind = line.kind === "add" || line.kind === "delete" ? line.kind : "context";
+  const marker = kind === "add" ? "+" : kind === "delete" ? "-" : " ";
+  return (
+    <tr
+      className={cn(
+        "border-0",
+        kind === "add" && "bg-emerald-500/[0.09] dark:bg-emerald-300/[0.11]",
+        kind === "delete" && "bg-rose-500/[0.09] dark:bg-rose-300/[0.11]",
+      )}
+    >
+      <td className="w-10 select-none border-r border-border/35 px-1.5 text-right text-muted-foreground/55">
+        {line.old_lineno ?? ""}
+      </td>
+      <td className="w-10 select-none border-r border-border/35 px-1.5 text-right text-muted-foreground/55">
+        {line.new_lineno ?? ""}
+      </td>
+      <td
+        className={cn(
+          "w-5 select-none px-1 text-center",
+          kind === "add" && "text-emerald-600/80 dark:text-emerald-300/85",
+          kind === "delete" && "text-rose-600/80 dark:text-rose-300/85",
+          kind === "context" && "text-muted-foreground/45",
+        )}
+      >
+        {marker}
+      </td>
+      <td className="min-w-[16rem] px-1.5 text-foreground/86">
+        <span className="whitespace-pre">{line.content || " "}</span>
+        {line.truncated ? <span className="text-muted-foreground/60">...</span> : null}
+      </td>
+    </tr>
+  );
 }

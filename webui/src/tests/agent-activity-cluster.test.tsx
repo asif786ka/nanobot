@@ -447,6 +447,67 @@ describe("AgentActivityCluster", () => {
     }
   });
 
+  it("renders GitHub-like file edit diffs when the local preference is enabled", () => {
+    localStorage.setItem(
+      "nanobot-webui.settings-preferences",
+      JSON.stringify({ fileEditDisplayMode: "diff" }),
+    );
+
+    try {
+      render(
+        <AgentActivityCluster
+          messages={[{
+            id: "t-diff",
+            role: "tool",
+            kind: "trace",
+            content: "edit_file()",
+            traces: ["edit_file()"],
+            fileEdits: [{
+              call_id: "call-edit",
+              tool: "edit_file",
+              path: "src/app.tsx",
+              phase: "end",
+              added: 1,
+              deleted: 1,
+              approximate: false,
+              status: "done",
+              diff: {
+                format: "unified",
+                context: 3,
+                truncated: false,
+                hunks: [{
+                  old_start: 10,
+                  old_lines: 3,
+                  new_start: 10,
+                  new_lines: 3,
+                  lines: [
+                    { kind: "context", old_lineno: 10, new_lineno: 10, content: "function App() {" },
+                    { kind: "delete", old_lineno: 11, new_lineno: null, content: "  return <Old />;" },
+                    { kind: "add", old_lineno: null, new_lineno: 11, content: "  return <New />;" },
+                  ],
+                }],
+              },
+            }],
+            createdAt: 3,
+          }]}
+          isTurnStreaming={false}
+          hasBodyBelow={false}
+        />,
+      );
+
+      expect(screen.getByTestId("file-edit-diff")).toBeInTheDocument();
+      expect(screen.queryByText("@@ -10,3 +10,3 @@")).not.toBeInTheDocument();
+      expect(screen.getByText("return <Old />;")).toBeInTheDocument();
+      expect(screen.getByText("return <New />;")).toBeInTheDocument();
+      expect(screen.getAllByText("11").length).toBeGreaterThanOrEqual(2);
+      expect(screen.getAllByTestId("activity-header-file-reference")).toHaveLength(1);
+      expect(screen.queryByTestId("activity-file-reference")).not.toBeInTheDocument();
+      expect(screen.getAllByTestId("activity-diff-pair")).toHaveLength(1);
+    } finally {
+      localStorage.removeItem("nanobot-webui.settings-preferences");
+    }
+  });
+
   it("labels whole-file deletes as deleted instead of edited", () => {
     render(
       <AgentActivityCluster

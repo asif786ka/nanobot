@@ -210,6 +210,29 @@ export interface ToolProgressEvent {
   embeds?: unknown[];
 }
 
+export interface UIFileDiffLine {
+  kind: "context" | "add" | "delete" | string;
+  old_lineno?: number | null;
+  new_lineno?: number | null;
+  content: string;
+  truncated?: boolean;
+}
+
+export interface UIFileDiffHunk {
+  old_start: number;
+  old_lines: number;
+  new_start: number;
+  new_lines: number;
+  lines: UIFileDiffLine[];
+}
+
+export interface UIFileDiff {
+  format: "unified" | string;
+  context?: number;
+  truncated?: boolean;
+  hunks: UIFileDiffHunk[];
+}
+
 export interface UIFileEdit {
   version?: number;
   call_id: string;
@@ -225,6 +248,7 @@ export interface UIFileEdit {
   binary?: boolean;
   error?: string;
   pending?: boolean;
+  diff?: UIFileDiff;
 }
 
 export interface ChatSummary {

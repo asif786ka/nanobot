@@ -8,6 +8,7 @@ from nanobot.utils.file_edit_events import (
     StreamingFileEditTracker,
     build_file_edit_end_event,
     build_file_edit_start_event,
+    build_unified_diff_payload,
     line_diff_stats,
     prepare_file_edit_tracker,
     prepare_file_edit_trackers,
@@ -61,6 +62,22 @@ def test_write_file_start_predicts_and_end_calibrates_exact_diff(tmp_path: Path)
     assert end["status"] == "done"
     assert end["approximate"] is False
     assert (end["added"], end["deleted"]) == (2, 1)
+    assert end["diff"]["format"] == "unified"
+    lines = end["diff"]["hunks"][0]["lines"]
+    assert {"kind": "delete", "old_lineno": 1, "new_lineno": None, "content": "old"} in lines
+    assert {"kind": "add", "old_lineno": None, "new_lineno": 1, "content": "new"} in lines
+    assert {"kind": "add", "old_lineno": None, "new_lineno": 3, "content": "extra"} in lines
+
+
+def test_unified_diff_payload_truncates_large_diffs() -> None:
+    before = "\n".join(f"old {i}" for i in range(12))
+    after = "\n".join(f"new {i}" for i in range(12))
+
+    diff = build_unified_diff_payload(before, after, context_lines=0, max_lines=5)
+
+    assert diff is not None
+    assert diff["truncated"] is True
+    assert sum(len(hunk["lines"]) for hunk in diff["hunks"]) == 5
 
 
 def test_binary_file_is_reported_but_not_counted(tmp_path: Path) -> None:
