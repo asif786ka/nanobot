@@ -1045,6 +1045,10 @@
     "copiedReply": "已复制",
     "turnLatencyTitle": "本轮耗时（端到端）",
     "fileEditViewDiff": "查看差异",
+    "fileEditDiffLineCount": "{{count}} 行",
+    "fileEditShowMoreLines": "显示剩余 {{count}} 行",
+    "fileEditShowFewerLines": "收起部分行",
+    "fileEditOpenFile": "打开文件",
     "fileEditDiffTruncated": "差异内容已截断。打开文件可查看完整更改。"
   },
   "lightbox": {

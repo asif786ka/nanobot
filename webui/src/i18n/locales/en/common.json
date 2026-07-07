@@ -1045,6 +1045,10 @@
     "copiedReply": "Copied",
     "turnLatencyTitle": "Response time (end-to-end)",
     "fileEditViewDiff": "View diff",
+    "fileEditDiffLineCount": "{{count}} lines",
+    "fileEditShowMoreLines": "Show {{count}} more lines",
+    "fileEditShowFewerLines": "Show fewer lines",
+    "fileEditOpenFile": "Open file",
     "fileEditDiffTruncated": "Diff truncated. Open the file for the full change."
   },
   "lightbox": {

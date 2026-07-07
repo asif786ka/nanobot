@@ -1,4 +1,13 @@
-import { AlertCircle, CheckCircle2, CircleDashed } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  CircleDashed,
+  ExternalLink,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { FileReferenceChip } from "@/components/FileReferenceChip";
@@ -8,6 +17,8 @@ import { cn } from "@/lib/utils";
 
 import { ActivityStep } from "./ActivityStep";
 import { DiffPair } from "./DiffPair";
+
+const INITIAL_VISIBLE_DIFF_LINES = 160;
 
 export interface FileEditSummary {
   key: string;
@@ -44,6 +55,7 @@ export function FileEditGroup({
               key={edit.key}
               edit={edit}
               displayMode={displayMode}
+              onOpenFilePreview={onOpenFilePreview}
             />
           );
         }
@@ -74,9 +86,11 @@ function canRenderDiffOnly(
 function FileEditDiffOnly({
   edit,
   displayMode,
+  onOpenFilePreview,
 }: {
   edit: FileEditSummary;
   displayMode: "diff" | "collapsed_diff";
+  onOpenFilePreview?: (path: string) => void;
 }) {
   return (
     <li className="min-w-0 py-0.5">
@@ -86,6 +100,8 @@ function FileEditDiffOnly({
         added={edit.added}
         deleted={edit.deleted}
         showCollapsedStats={false}
+        previewPath={edit.absolute_path || edit.path}
+        onOpenFilePreview={onOpenFilePreview}
       />
     </li>
   );
@@ -165,6 +181,8 @@ function FileEditRow({
           collapsed={displayMode === "collapsed_diff"}
           added={edit.added}
           deleted={edit.deleted}
+          previewPath={edit.absolute_path || edit.path}
+          onOpenFilePreview={onOpenFilePreview}
         />
       ) : null}
     </ActivityStep>
@@ -207,21 +225,45 @@ function FileUnifiedDiff({
   added,
   deleted,
   showCollapsedStats = true,
+  previewPath,
+  onOpenFilePreview,
 }: {
   diff: UIFileDiff;
   collapsed: boolean;
   added: number;
   deleted: number;
   showCollapsedStats?: boolean;
+  previewPath?: string;
+  onOpenFilePreview?: (path: string) => void;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
+  const [open, setOpen] = useState(false);
+  const [expandedLines, setExpandedLines] = useState(false);
+  const totalLineCount = useMemo(() => countDiffLines(diff), [diff]);
+  const shouldLimitLines = totalLineCount > INITIAL_VISIBLE_DIFF_LINES;
+  const lineLimit = expandedLines || !shouldLimitLines
+    ? totalLineCount
+    : INITIAL_VISIBLE_DIFF_LINES;
+  const visibleDiff = useMemo(
+    () => selectVisibleDiffLines(diff, lineLimit, totalLineCount),
+    [diff, lineLimit, totalLineCount],
+  );
+  const lineCountLabel = t("message.fileEditDiffLineCount", {
+    count: diff.truncated ? `${totalLineCount}+` : totalLineCount,
+    defaultValue: "{{count}} lines",
+  });
+
+  useEffect(() => {
+    setExpandedLines(false);
+  }, [diff]);
+
   const body = (
     <div
       className="mt-1 overflow-hidden rounded-md border border-border/55 bg-background/80 shadow-[0_1px_0_rgba(15,23,42,0.03)]"
       data-testid="file-edit-diff"
     >
-      {diff.hunks.map((hunk, index) => (
+      {visibleDiff.hunks.map((hunk, index) => (
         <div
           key={`${hunk.old_start}-${hunk.new_start}-${index}`}
           className={cn("min-w-0", index > 0 && "border-t border-border/45")}
@@ -240,9 +282,62 @@ function FileUnifiedDiff({
           </div>
         </div>
       ))}
+      {visibleDiff.hiddenLineCount > 0 ? (
+        <div className="border-t border-border/45 bg-muted/30 px-2 py-1">
+          <button
+            type="button"
+            className={cn(
+              "inline-flex items-center gap-1 rounded px-1 py-0.5 text-[11px] font-medium",
+              "text-muted-foreground transition-colors hover:bg-muted/65 hover:text-foreground",
+            )}
+            data-testid="file-edit-diff-expand-lines"
+            onClick={() => setExpandedLines(true)}
+          >
+            <ChevronDown className="h-3 w-3" aria-hidden />
+            {t("message.fileEditShowMoreLines", {
+              count: visibleDiff.hiddenLineCount,
+              defaultValue: "Show {{count}} more lines",
+            })}
+          </button>
+        </div>
+      ) : expandedLines && shouldLimitLines ? (
+        <div className="border-t border-border/45 bg-muted/30 px-2 py-1">
+          <button
+            type="button"
+            className={cn(
+              "inline-flex items-center gap-1 rounded px-1 py-0.5 text-[11px] font-medium",
+              "text-muted-foreground transition-colors hover:bg-muted/65 hover:text-foreground",
+            )}
+            data-testid="file-edit-diff-collapse-lines"
+            onClick={() => setExpandedLines(false)}
+          >
+            <ChevronUp className="h-3 w-3" aria-hidden />
+            {tx("message.fileEditShowFewerLines", "Show fewer lines")}
+          </button>
+        </div>
+      ) : null}
       {diff.truncated ? (
-        <div className="border-t border-border/45 bg-muted/35 px-2 py-1 text-[11px] text-muted-foreground">
-          {tx("message.fileEditDiffTruncated", "Diff truncated. Open the file for the full change.")}
+        <div
+          className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-border/45 bg-muted/35 px-2 py-1 text-[11px] text-muted-foreground"
+          data-testid="file-edit-diff-truncated"
+        >
+          <span>
+            {tx("message.fileEditDiffTruncated", "Diff truncated. Open the file for the full change.")}
+          </span>
+          {previewPath && onOpenFilePreview ? (
+            <button
+              type="button"
+              className={cn(
+                "inline-flex items-center gap-1 rounded px-1 py-0.5 font-medium",
+                "text-muted-foreground transition-colors hover:bg-muted/65 hover:text-foreground",
+              )}
+              data-testid="file-edit-diff-open-file"
+              onClick={() => onOpenFilePreview(previewPath)}
+            >
+              <ExternalLink className="h-3 w-3" aria-hidden />
+              {tx("message.fileEditOpenFile", "Open file")}
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -251,19 +346,59 @@ function FileUnifiedDiff({
   if (!collapsed) return body;
 
   return (
-    <details className="group/file-diff mt-1">
-      <summary
+    <div className="mt-1">
+      <button
+        type="button"
+        aria-expanded={open}
+        data-testid="file-edit-diff-toggle"
+        onClick={() => setOpen((value) => !value)}
         className={cn(
-          "flex cursor-pointer list-none items-center gap-2 rounded-md border border-border/45 bg-muted/35 px-2 py-1",
+          "flex w-full cursor-pointer items-center gap-2 rounded-md border border-border/45 bg-muted/35 px-2 py-1 text-left",
           "text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/50",
         )}
       >
+        <ChevronRight
+          className={cn("h-3 w-3 shrink-0 transition-transform", open && "rotate-90")}
+          aria-hidden
+        />
         <span className="min-w-0 flex-1">{tx("message.fileEditViewDiff", "View diff")}</span>
+        <span className="shrink-0 text-muted-foreground/65">{lineCountLabel}</span>
         {showCollapsedStats ? <DiffPair added={added} deleted={deleted} /> : null}
-      </summary>
-      {body}
-    </details>
+      </button>
+      {open ? body : null}
+    </div>
   );
+}
+
+function countDiffLines(diff: UIFileDiff): number {
+  return diff.hunks.reduce((total, hunk) => total + hunk.lines.length, 0);
+}
+
+function selectVisibleDiffLines(
+  diff: UIFileDiff,
+  lineLimit: number,
+  totalLineCount: number,
+): { hunks: UIFileDiff["hunks"]; hiddenLineCount: number } {
+  if (lineLimit >= totalLineCount) {
+    return { hunks: diff.hunks, hiddenLineCount: 0 };
+  }
+
+  let remaining = Math.max(0, lineLimit);
+  const hunks: UIFileDiff["hunks"] = [];
+  for (const hunk of diff.hunks) {
+    if (remaining <= 0) break;
+    if (hunk.lines.length <= remaining) {
+      hunks.push(hunk);
+      remaining -= hunk.lines.length;
+      continue;
+    }
+    hunks.push({ ...hunk, lines: hunk.lines.slice(0, remaining) });
+    remaining = 0;
+  }
+  return {
+    hunks,
+    hiddenLineCount: Math.max(0, totalLineCount - lineLimit),
+  };
 }
 
 function DiffLineRow({ line }: { line: UIFileDiffLine }) {

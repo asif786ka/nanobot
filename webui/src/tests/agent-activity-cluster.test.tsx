@@ -508,6 +508,197 @@ describe("AgentActivityCluster", () => {
     }
   });
 
+  it("renders long file edit diffs incrementally", () => {
+    localStorage.setItem(
+      "nanobot-webui.settings-preferences",
+      JSON.stringify({ fileEditDisplayMode: "diff" }),
+    );
+    const lines = Array.from({ length: 165 }, (_, index) => ({
+      kind: "add" as const,
+      old_lineno: null,
+      new_lineno: index + 1,
+      content: `line-${index + 1}`,
+    }));
+
+    try {
+      render(
+        <AgentActivityCluster
+          messages={[{
+            id: "t-long-diff",
+            role: "tool",
+            kind: "trace",
+            content: "edit_file()",
+            traces: ["edit_file()"],
+            fileEdits: [{
+              call_id: "call-long-edit",
+              tool: "edit_file",
+              path: "src/long.ts",
+              phase: "end",
+              added: lines.length,
+              deleted: 0,
+              approximate: false,
+              status: "done",
+              diff: {
+                format: "unified",
+                context: 3,
+                truncated: false,
+                hunks: [{
+                  old_start: 1,
+                  old_lines: 0,
+                  new_start: 1,
+                  new_lines: lines.length,
+                  lines,
+                }],
+              },
+            }],
+            createdAt: 3,
+          }]}
+          isTurnStreaming={false}
+          hasBodyBelow={false}
+        />,
+      );
+
+      expect(screen.getByText("line-160")).toBeInTheDocument();
+      expect(screen.queryByText("line-161")).not.toBeInTheDocument();
+      expect(screen.getByTestId("file-edit-diff-expand-lines")).toHaveTextContent("Show 5 more lines");
+
+      fireEvent.click(screen.getByTestId("file-edit-diff-expand-lines"));
+
+      expect(screen.getByText("line-165")).toBeInTheDocument();
+      expect(screen.getByTestId("file-edit-diff-collapse-lines")).toHaveTextContent("Show fewer lines");
+
+      fireEvent.click(screen.getByTestId("file-edit-diff-collapse-lines"));
+
+      expect(screen.queryByText("line-165")).not.toBeInTheDocument();
+      expect(screen.getByTestId("file-edit-diff-expand-lines")).toHaveTextContent("Show 5 more lines");
+    } finally {
+      localStorage.removeItem("nanobot-webui.settings-preferences");
+    }
+  });
+
+  it("does not mount collapsed file edit diff rows until opened", () => {
+    localStorage.setItem(
+      "nanobot-webui.settings-preferences",
+      JSON.stringify({ fileEditDisplayMode: "collapsed_diff" }),
+    );
+
+    try {
+      render(
+        <AgentActivityCluster
+          messages={[{
+            id: "t-collapsed-diff",
+            role: "tool",
+            kind: "trace",
+            content: "edit_file()",
+            traces: ["edit_file()"],
+            fileEdits: [{
+              call_id: "call-collapsed-edit",
+              tool: "edit_file",
+              path: "src/app.tsx",
+              phase: "end",
+              added: 1,
+              deleted: 1,
+              approximate: false,
+              status: "done",
+              diff: {
+                format: "unified",
+                context: 3,
+                truncated: false,
+                hunks: [{
+                  old_start: 10,
+                  old_lines: 3,
+                  new_start: 10,
+                  new_lines: 3,
+                  lines: [
+                    { kind: "context", old_lineno: 10, new_lineno: 10, content: "function App() {" },
+                    { kind: "delete", old_lineno: 11, new_lineno: null, content: "  return <Old />;" },
+                    { kind: "add", old_lineno: null, new_lineno: 11, content: "  return <New />;" },
+                  ],
+                }],
+              },
+            }],
+            createdAt: 3,
+          }]}
+          isTurnStreaming={false}
+          hasBodyBelow={false}
+        />,
+      );
+
+      const toggle = screen.getByTestId("file-edit-diff-toggle");
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      expect(toggle).toHaveTextContent("View diff");
+      expect(toggle).toHaveTextContent("3 lines");
+      expect(screen.queryByTestId("file-edit-diff")).not.toBeInTheDocument();
+      expect(screen.queryByText("return <New />;")).not.toBeInTheDocument();
+
+      fireEvent.click(toggle);
+
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+      expect(screen.getByTestId("file-edit-diff")).toBeInTheDocument();
+      expect(screen.getByText("return <New />;")).toBeInTheDocument();
+    } finally {
+      localStorage.removeItem("nanobot-webui.settings-preferences");
+    }
+  });
+
+  it("offers the file preview entry point when a diff payload is truncated", () => {
+    localStorage.setItem(
+      "nanobot-webui.settings-preferences",
+      JSON.stringify({ fileEditDisplayMode: "diff" }),
+    );
+    const onOpenFilePreview = vi.fn();
+
+    try {
+      render(
+        <AgentActivityCluster
+          messages={[{
+            id: "t-truncated-diff",
+            role: "tool",
+            kind: "trace",
+            content: "edit_file()",
+            traces: ["edit_file()"],
+            fileEdits: [{
+              call_id: "call-truncated-edit",
+              tool: "edit_file",
+              path: "src/app.tsx",
+              absolute_path: "/repo/src/app.tsx",
+              phase: "end",
+              added: 1,
+              deleted: 0,
+              approximate: false,
+              status: "done",
+              diff: {
+                format: "unified",
+                context: 3,
+                truncated: true,
+                hunks: [{
+                  old_start: 10,
+                  old_lines: 0,
+                  new_start: 10,
+                  new_lines: 1,
+                  lines: [
+                    { kind: "add", old_lineno: null, new_lineno: 10, content: "export const value = 1;" },
+                  ],
+                }],
+              },
+            }],
+            createdAt: 3,
+          }]}
+          isTurnStreaming={false}
+          hasBodyBelow={false}
+          onOpenFilePreview={onOpenFilePreview}
+        />,
+      );
+
+      expect(screen.getByTestId("file-edit-diff-truncated")).toHaveTextContent("Diff truncated");
+      fireEvent.click(screen.getByTestId("file-edit-diff-open-file"));
+
+      expect(onOpenFilePreview).toHaveBeenCalledWith("/repo/src/app.tsx");
+    } finally {
+      localStorage.removeItem("nanobot-webui.settings-preferences");
+    }
+  });
+
   it("labels whole-file deletes as deleted instead of edited", () => {
     render(
       <AgentActivityCluster
